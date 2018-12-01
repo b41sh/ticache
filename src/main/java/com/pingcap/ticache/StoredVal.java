@@ -38,11 +38,10 @@ public class StoredVal {
 
         StringBuilder valSb = new StringBuilder();
         int len = lines.length;
-        for (int i = 1; i < len - 1; i++) {
+        for (int i = 1; i < len; i++) {
             valSb.append(lines[i]);
             valSb.append("\r\n");
         }
-        valSb.append(lines[len - 1]);
         this.val = valSb.toString();
     }
 

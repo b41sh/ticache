@@ -1,12 +1,12 @@
 package com.pingcap.ticache;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-//import org.apache.log4j.Logger;
+import io.netty.buffer.Unpooled;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +20,6 @@ import org.springframework.util.Assert;
  * Handle decoded commands
  */
 @Component
-//@Slf4j
 @RequiredArgsConstructor
 @ChannelHandler.Sharable
 public class CommandHandler extends SimpleChannelInboundHandler<Command> {
@@ -41,8 +40,10 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         logger.info("command handler cmd=" + cmd);
 
         try {
-            if (cmd.equals("get")) {
+            if (cmd.equals("set")) {
                 doSet(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+                ByteBuf outBuf = Unpooled.copiedBuffer("STORED\r\n".getBytes());
+                ctx.writeAndFlush(outBuf);
             } else if (cmd.equals("add")) {
                 doAdd(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
             } else if (cmd.equals("replace")) {
@@ -56,9 +57,23 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
             } else if (cmd.equals("decr")) {
                 doDecr(msg.getKey(), msg.getVal());
             } else if (cmd.equals("get")) {
-                doGet(msg.getKey());
+                String retVal = doGet(msg.getKey());
+                if (retVal == null) {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("END\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                } else {
+                    ByteBuf outBuf = Unpooled.copiedBuffer(retVal.getBytes());
+                    ctx.writeAndFlush(outBuf);
+                }
             } else if (cmd.equals("delete")) {
-                doDelete(msg.getKey());
+                boolean ret = doDelete(msg.getKey());
+                if (ret) {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("DELETED\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                } else {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("NOT_FOUND\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                }
             }
         } catch (Exception e) {
             logger.error("cmd error", e);
@@ -68,8 +83,8 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
 
     private String doGet(String key) throws Exception {
         String oldVal = client.get(key);
-        if (oldVal != null) {
-            throw new Exception("EXISTS");
+        if (oldVal == null || oldVal.length() == 0) {
+            return null;
         }
         StoredVal storedVal = new StoredVal(oldVal);
         int flags = storedVal.getFlags();
@@ -80,9 +95,21 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         int currTime = (int) (System.currentTimeMillis() / 1000);
         if (ttl < currTime) {
             client.delete(key);
+            return null;
         }
 
-        return val;
+        StringBuilder sb = new StringBuilder();
+        sb.append("VALUE ");
+        sb.append(key);
+        sb.append(" ");
+        sb.append(flags);
+        sb.append(" ");
+        sb.append(size);
+        sb.append("\r\n");
+        sb.append(val);
+        sb.append("END\r\n");
+
+        return sb.toString();
     }
 
     private void doAdd(String key, int flags, int ttl, int size, String val) throws Exception {
@@ -190,6 +217,8 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
     }
 
     private void doSet(String key, int flags, int ttl, int size, String val) throws Exception {
+        logger.info("command handler doSet key=" + key + " flags=" + flags + " ttl=" + ttl + " size=" + size + " val=" + val);
+
         if (ttl <= 2592000) {
             long time = System.currentTimeMillis();
             int mtime = (int) (time / 1000);
@@ -197,18 +226,32 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         }
 
         StoredVal storedVal = new StoredVal(flags, ttl, size, val);
+        logger.info("command handler doSet key=" + key + " flags=" + flags + " ttl=" + ttl + " size=" + size + " val=" + val);
 
         String fullVal = storedVal.getFullVal();
         logger.info("command handler put key=" + key + " fullVal=" + fullVal);
         client.put(key, fullVal);
+
     }
 
-    private void doDelete(String key) throws Exception {
+    private boolean doDelete(String key) throws Exception {
         String oldVal = client.get(key);
-        if (oldVal != null) {
-            throw new Exception("EXISTS");
+        logger.info("command handler doDelete key=" + key);
+
+        if (oldVal == null || oldVal.length() == 0) {
+            return false;
         }
+        StoredVal storedVal = new StoredVal(oldVal);
+        int ttl = storedVal.getTtl();
+
+        int currTime = (int) (System.currentTimeMillis() / 1000);
+        if (ttl < currTime) {
+            client.delete(key);
+            return false;
+        }
+
         client.delete(key);
+        return true;
     }
 
 }
