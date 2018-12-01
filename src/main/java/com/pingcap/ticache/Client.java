@@ -51,4 +51,16 @@ public class Client {
 
         return null;
     }
+
+    public void delete(String key) {
+
+        try {
+            logger.info("client delete key=" + key);
+            ByteString bKey = ByteString.copyFrom(key, StandardCharsets.UTF_8);
+            client.delete(bKey);
+        } catch (Exception e) {
+            logger.error("client delete error", e);
+        }
+    }
+
 }

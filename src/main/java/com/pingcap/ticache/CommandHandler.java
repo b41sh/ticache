@@ -40,16 +40,175 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         String cmd = msg.getCmd();
         logger.info("command handler cmd=" + cmd);
 
-        if (cmd.equals("get")) {
-            String key = msg.getKey();
-            logger.info("command handler get key=" + key);
-            String retVal = client.get(key);
-            logger.info("command handler get retVal=" + retVal);
-        } else if (cmd.equals("set")) {
-            String key = msg.getKey();
-            String val = msg.getVal();
-            logger.info("command handler put key=" + key + " val=" + val);
-            client.put(key, val);
+        try {
+            if (cmd.equals("get")) {
+                doSet(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+            } else if (cmd.equals("add")) {
+                doAdd(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+            } else if (cmd.equals("replace")) {
+                doReplace(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+            } else if (cmd.equals("prepend")) {
+                doPrepend(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+            } else if (cmd.equals("append")) {
+                doAppend(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+            } else if (cmd.equals("incr")) {
+                doIncr(msg.getKey(), msg.getVal());
+            } else if (cmd.equals("decr")) {
+                doDecr(msg.getKey(), msg.getVal());
+            } else if (cmd.equals("get")) {
+                doGet(msg.getKey());
+            } else if (cmd.equals("delete")) {
+                doDelete(msg.getKey());
+            }
+        } catch (Exception e) {
+            logger.error("cmd error", e);
         }
+
     }
+
+    private String doGet(String key) throws Exception {
+        String oldVal = client.get(key);
+        if (oldVal != null) {
+            throw new Exception("EXISTS");
+        }
+        StoredVal storedVal = new StoredVal(oldVal);
+        int flags = storedVal.getFlags();
+        int ttl = storedVal.getTtl();
+        int size = storedVal.getSize();
+        String val = storedVal.getVal();
+
+        int currTime = (int) (System.currentTimeMillis() / 1000);
+        if (ttl < currTime) {
+            client.delete(key);
+        }
+
+        return val;
+    }
+
+    private void doAdd(String key, int flags, int ttl, int size, String val) throws Exception {
+        String oldVal = client.get(key);
+        if (oldVal != null) {
+            throw new Exception("EXISTS");
+        }
+
+        doSet(key, flags, ttl, size, val);
+    }
+
+    private void doReplace(String key, int flags, int ttl, int size, String val) throws Exception {
+        String oldVal = client.get(key);
+        if (oldVal == null) {
+            throw new Exception("NOT_FOUND");
+        }
+
+        doSet(key, flags, ttl, size, val);
+    }
+
+    private void doAppend(String key, int flags, int ttl, int size, String val) throws Exception {
+        String oldVal = client.get(key);
+        if (oldVal == null) {
+            throw new Exception("NOT_STORED");
+        }
+        StoredVal storedVal = new StoredVal(oldVal);
+        int newFlags = storedVal.getFlags();
+        int newTtl = storedVal.getTtl();
+        int newSize = storedVal.getSize() + size;
+        StringBuilder newValSb = new StringBuilder();
+        newValSb.append(storedVal.getVal());
+        newValSb.append(val);
+        String newVal = newValSb.toString();
+
+        doSet(key, newFlags, newTtl, newSize, newVal);
+    }
+
+    private void doPrepend(String key, int flags, int ttl, int size, String val) throws Exception {
+        String oldVal = client.get(key);
+        if (oldVal == null) {
+            throw new Exception("NOT_STORED");
+        }
+        StoredVal storedVal = new StoredVal(oldVal);
+        int newFlags = storedVal.getFlags();
+        int newTtl = storedVal.getTtl();
+        int newSize = storedVal.getSize() + size;
+        StringBuilder newValSb = new StringBuilder();
+        newValSb.append(val);
+        newValSb.append(storedVal.getVal());
+        String newVal = newValSb.toString();
+
+        doSet(key, newFlags, newTtl, newSize, newVal);
+    }
+
+    private void doIncr(String key, String val) throws Exception {
+        String oldVal = client.get(key);
+        if (oldVal == null) {
+            throw new Exception("NOT_STORED");
+        }
+        StoredVal storedVal = new StoredVal(oldVal);
+        int newFlags = storedVal.getFlags();
+        int newTtl = storedVal.getTtl();
+
+        int tmpVal = 0;
+        try {
+            int nVal = Integer.parseInt(val);
+            int oVal = Integer.parseInt(storedVal.getVal());
+            tmpVal = oVal + nVal;
+        } catch (NumberFormatException e) {
+            throw new Exception("CLIENT_ERROR cannot increment or decrement non-numeric value");
+        }
+
+        String newVal = Integer.toString(tmpVal);
+        int newSize = newVal.length();
+
+        doSet(key, newFlags, newTtl, newSize, newVal);
+
+    }
+
+    private void doDecr(String key, String val) throws Exception {
+        String oldVal = client.get(key);
+        if (oldVal == null) {
+            throw new Exception("NOT_STORED");
+        }
+        StoredVal storedVal = new StoredVal(oldVal);
+        int newFlags = storedVal.getFlags();
+        int newTtl = storedVal.getTtl();
+
+        int tmpVal = 0;
+        try {
+            int nVal = Integer.parseInt(val);
+            int oVal = Integer.parseInt(storedVal.getVal());
+            tmpVal = oVal - nVal;
+        } catch (NumberFormatException e) {
+            throw new Exception("CLIENT_ERROR cannot increment or decrement non-numeric value");
+        }
+        String newVal = Integer.toString(tmpVal);
+        int newSize = newVal.length();
+        if (tmpVal < 0) {
+            newVal = "0";
+            newSize = storedVal.getSize();
+        }
+
+        doSet(key, newFlags, newTtl, newSize, newVal);
+    }
+
+    private void doSet(String key, int flags, int ttl, int size, String val) throws Exception {
+        if (ttl <= 2592000) {
+            long time = System.currentTimeMillis();
+            int mtime = (int) (time / 1000);
+            ttl += mtime;
+        }
+
+        StoredVal storedVal = new StoredVal(flags, ttl, size, val);
+
+        String fullVal = storedVal.getFullVal();
+        logger.info("command handler put key=" + key + " fullVal=" + fullVal);
+        client.put(key, fullVal);
+    }
+
+    private void doDelete(String key) throws Exception {
+        String oldVal = client.get(key);
+        if (oldVal != null) {
+            throw new Exception("EXISTS");
+        }
+        client.delete(key);
+    }
+
 }
