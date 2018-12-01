@@ -90,4 +90,8 @@ public class Application {
         return new ChannelRepository();
     }
 
+    @Bean
+    public Client client() {
+        return new Client();
+    }
 }
