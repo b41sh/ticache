@@ -26,6 +26,18 @@ public class Client {
         logger.info("init RawKVClient address=" + address + " client=" + client);
     }
 
+    public void putData(String key, String value) {
+        put("d_" + key, value);
+    }
+
+    public String getData(String key) {
+        return get("d_" + key);
+    }
+
+    public void deleteData(String key) {
+        delete("d_" + key);
+    }
+
     public void put(String key, String value) {
 
         try {

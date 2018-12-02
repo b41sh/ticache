@@ -126,6 +126,13 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
                     ByteBuf outBuf = Unpooled.copiedBuffer("NOT_FOUND\r\n".getBytes());
                     ctx.writeAndFlush(outBuf);
                 }
+            } else if (cmd.equals("flush_all")) {
+                doFlushAll();
+                ByteBuf outBuf = Unpooled.copiedBuffer("OK\r\n".getBytes());
+                ctx.writeAndFlush(outBuf);
+            } else {
+                ByteBuf outBuf = Unpooled.copiedBuffer("ERROR\r\n".getBytes());
+                ctx.writeAndFlush(outBuf);
             }
         } catch (Exception e) {
             logger.error("cmd error", e);
@@ -137,7 +144,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
     }
 
     private String doGet(String key) throws Exception {
-        String oldVal = client.get(key);
+        String oldVal = client.getData(key);
         if (oldVal == null || oldVal.length() == 0) {
             return null;
         }
@@ -149,7 +156,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
 
         int currTime = (int) (System.currentTimeMillis() / 1000);
         if (ttl < currTime && ttl > 0) {
-            client.delete(key);
+            client.deleteData(key);
             return null;
         }
 
@@ -168,7 +175,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
     }
 
     private boolean doAdd(String key, int flags, int ttl, int size, String val) throws Exception {
-        String oldVal = client.get(key);
+        String oldVal = client.getData(key);
 
         boolean isValid = isValid(oldVal);
         if (isValid) {
@@ -180,7 +187,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
     }
 
     private boolean doReplace(String key, int flags, int ttl, int size, String val) throws Exception {
-        String oldVal = client.get(key);
+        String oldVal = client.getData(key);
         boolean isValid = isValid(oldVal);
         if (!isValid) {
             return false;
@@ -191,7 +198,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
     }
 
     private boolean doAppend(String key, int flags, int ttl, int size, String val) throws Exception {
-        String oldVal = client.get(key);
+        String oldVal = client.getData(key);
         boolean isValid = isValid(oldVal);
         if (!isValid) {
             return false;
@@ -211,7 +218,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
     }
 
     private boolean doPrepend(String key, int flags, int ttl, int size, String val) throws Exception {
-        String oldVal = client.get(key);
+        String oldVal = client.getData(key);
         boolean isValid = isValid(oldVal);
         if (!isValid) {
             return false;
@@ -230,7 +237,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
     }
 
     private boolean doIncr(String key, String val) throws Exception {
-        String oldVal = client.get(key);
+        String oldVal = client.getData(key);
         boolean isValid = isValid(oldVal);
         if (!isValid) {
             return false;
@@ -258,7 +265,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
     }
 
     private boolean doDecr(String key, String val) throws Exception {
-        String oldVal = client.get(key);
+        String oldVal = client.getData(key);
         boolean isValid = isValid(oldVal);
         if (!isValid) {
             return false;
@@ -301,21 +308,22 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
 
         String fullVal = storedVal.getFullVal();
         logger.info("command handler put key=" + key + " fullVal=" + fullVal);
-        client.put(key, fullVal);
+        client.putData(key, fullVal);
 
+        doAddKey(key);
     }
 
     private boolean doDelete(String key) throws Exception {
-        String oldVal = client.get(key);
+        String oldVal = client.getData(key);
         logger.info("command handler doDelete key=" + key);
 
         boolean isValid = isValid(oldVal);
         if (!isValid) {
-            client.delete(key);
+            client.deleteData(key);
             return false;
         }
 
-        client.delete(key);
+        client.deleteData(key);
         return true;
     }
 
@@ -331,5 +339,34 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
             return false;
         }
         return true;
+    }
+
+    private void doFlushAll() throws Exception {
+        String curKeyCnt = "currKey";
+        String curKeyNum = client.get(curKeyCnt);
+        if (curKeyNum == null || curKeyNum.length() == 0) {
+            return;
+        }
+        for (int i = 0; i <= Integer.parseInt(curKeyNum); i++) {
+            String keySuffix = "k" + i;
+            String curKey = client.get(keySuffix);
+            client.delete(keySuffix);
+            client.deleteData(curKey);
+        }
+        client.put(curKeyCnt, "0");
+    }
+
+    private void doAddKey(String addkey) throws Exception {
+        String curKeyCnt = "currKey";
+        String curKeyNum = client.get(curKeyCnt);
+        if (curKeyNum == null || curKeyNum.length() == 0) {
+            curKeyNum = "0";
+        }
+        String keySuffix = "k" + curKeyNum;
+        client.put(keySuffix, addkey);
+
+        int num = Integer.parseInt(curKeyNum);
+        num++;
+        client.put(curKeyCnt, String.valueOf(num));
     }
 }

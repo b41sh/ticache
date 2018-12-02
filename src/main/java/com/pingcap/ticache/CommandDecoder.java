@@ -94,6 +94,10 @@ public class CommandDecoder extends ReplayingDecoder<Void> {
 
             if (cmd.equals("version\r\n")) {
                 showVersion(ctx);
+            } else if (cmd.equals("flush_all\r\n")) {
+                Command command = new Command("flush_all", key, flags, ttl, size, val);
+                clean();
+                out.add(command);
             } else if (cmd.equals("get")) {
                 decodeGet(in);
                 Command command = new Command(cmd, key, flags, ttl, size, val);
