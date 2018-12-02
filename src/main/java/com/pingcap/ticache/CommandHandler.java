@@ -45,17 +45,69 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
                 ByteBuf outBuf = Unpooled.copiedBuffer("STORED\r\n".getBytes());
                 ctx.writeAndFlush(outBuf);
             } else if (cmd.equals("add")) {
-                doAdd(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+                boolean ret = doAdd(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+                if (ret) {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("STORED\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                } else {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("NOT_STORED\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                }
             } else if (cmd.equals("replace")) {
-                doReplace(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+                boolean ret = doReplace(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+                if (ret) {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("STORED\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                } else {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("NOT_STORED\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                }
             } else if (cmd.equals("prepend")) {
-                doPrepend(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+                boolean ret = doPrepend(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+                if (ret) {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("STORED\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                } else {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("NOT_STORED\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                }
             } else if (cmd.equals("append")) {
-                doAppend(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+                boolean ret = doAppend(msg.getKey(), msg.getFlags(), msg.getTtl(), msg.getSize(), msg.getVal());
+                if (ret) {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("STORED\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                } else {
+                    ByteBuf outBuf = Unpooled.copiedBuffer("NOT_STORED\r\n".getBytes());
+                    ctx.writeAndFlush(outBuf);
+                }
             } else if (cmd.equals("incr")) {
-                doIncr(msg.getKey(), msg.getVal());
+                try {
+                    boolean ret = doIncr(msg.getKey(), msg.getVal());
+                    if (ret) {
+                        ByteBuf outBuf = Unpooled.copiedBuffer("STORED\r\n".getBytes());
+                        ctx.writeAndFlush(outBuf);
+                    } else {
+                        ByteBuf outBuf = Unpooled.copiedBuffer("NOT_STORED\r\n".getBytes());
+                        ctx.writeAndFlush(outBuf);
+                    }
+                } catch (Exception e) {
+                    ByteBuf outBuf = Unpooled.copiedBuffer(e.getMessage().getBytes());
+                    ctx.writeAndFlush(outBuf);
+                }
             } else if (cmd.equals("decr")) {
-                doDecr(msg.getKey(), msg.getVal());
+                try {
+                    boolean ret = doDecr(msg.getKey(), msg.getVal());
+                    if (ret) {
+                        ByteBuf outBuf = Unpooled.copiedBuffer("STORED\r\n".getBytes());
+                        ctx.writeAndFlush(outBuf);
+                    } else {
+                        ByteBuf outBuf = Unpooled.copiedBuffer("NOT_STORED\r\n".getBytes());
+                        ctx.writeAndFlush(outBuf);
+                    }
+                } catch (Exception e) {
+                    ByteBuf outBuf = Unpooled.copiedBuffer(e.getMessage().getBytes());
+                    ctx.writeAndFlush(outBuf);
+                }
             } else if (cmd.equals("get")) {
                 String retVal = doGet(msg.getKey());
                 if (retVal == null) {
@@ -77,6 +129,9 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
             }
         } catch (Exception e) {
             logger.error("cmd error", e);
+
+            ByteBuf outBuf = Unpooled.copiedBuffer("SERVER_ERROR\r\n".getBytes());
+            ctx.writeAndFlush(outBuf);
         }
 
     }
@@ -112,62 +167,73 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         return sb.toString();
     }
 
-    private void doAdd(String key, int flags, int ttl, int size, String val) throws Exception {
+    private boolean doAdd(String key, int flags, int ttl, int size, String val) throws Exception {
         String oldVal = client.get(key);
-        if (oldVal != null) {
-            throw new Exception("EXISTS");
+
+        boolean isValid = isValid(oldVal);
+        if (isValid) {
+            return false;
         }
 
         doSet(key, flags, ttl, size, val);
+        return true;
     }
 
-    private void doReplace(String key, int flags, int ttl, int size, String val) throws Exception {
+    private boolean doReplace(String key, int flags, int ttl, int size, String val) throws Exception {
         String oldVal = client.get(key);
-        if (oldVal == null) {
-            throw new Exception("NOT_FOUND");
+        boolean isValid = isValid(oldVal);
+        if (!isValid) {
+            return false;
         }
 
         doSet(key, flags, ttl, size, val);
+        return true;
     }
 
-    private void doAppend(String key, int flags, int ttl, int size, String val) throws Exception {
+    private boolean doAppend(String key, int flags, int ttl, int size, String val) throws Exception {
         String oldVal = client.get(key);
-        if (oldVal == null) {
-            throw new Exception("NOT_STORED");
+        boolean isValid = isValid(oldVal);
+        if (!isValid) {
+            return false;
         }
         StoredVal storedVal = new StoredVal(oldVal);
         int newFlags = storedVal.getFlags();
         int newTtl = storedVal.getTtl();
         int newSize = storedVal.getSize() + size;
         StringBuilder newValSb = new StringBuilder();
-        newValSb.append(storedVal.getVal());
+        String oVal = storedVal.getVal();
+        newValSb.append(oVal.substring(0, oVal.length() - 2));
         newValSb.append(val);
         String newVal = newValSb.toString();
 
         doSet(key, newFlags, newTtl, newSize, newVal);
+        return true;
     }
 
-    private void doPrepend(String key, int flags, int ttl, int size, String val) throws Exception {
+    private boolean doPrepend(String key, int flags, int ttl, int size, String val) throws Exception {
         String oldVal = client.get(key);
-        if (oldVal == null) {
-            throw new Exception("NOT_STORED");
+        boolean isValid = isValid(oldVal);
+        if (!isValid) {
+            return false;
         }
         StoredVal storedVal = new StoredVal(oldVal);
         int newFlags = storedVal.getFlags();
         int newTtl = storedVal.getTtl();
         int newSize = storedVal.getSize() + size;
         StringBuilder newValSb = new StringBuilder();
-        newValSb.append(val);
+        newValSb.append(val.substring(0, val.length() - 2));
         newValSb.append(storedVal.getVal());
         String newVal = newValSb.toString();
 
         doSet(key, newFlags, newTtl, newSize, newVal);
+        return true;
     }
 
-    private void doIncr(String key, String val) throws Exception {
+    private boolean doIncr(String key, String val) throws Exception {
         String oldVal = client.get(key);
-        if (oldVal == null) {
-            throw new Exception("NOT_STORED");
+        boolean isValid = isValid(oldVal);
+        if (!isValid) {
+            return false;
         }
         StoredVal storedVal = new StoredVal(oldVal);
         int newFlags = storedVal.getFlags();
@@ -176,23 +242,26 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         int tmpVal = 0;
         try {
             int nVal = Integer.parseInt(val);
-            int oVal = Integer.parseInt(storedVal.getVal());
+            String ooVal = storedVal.getVal();
+            int oVal = Integer.parseInt(ooVal.substring(0, ooVal.length() - 2));
             tmpVal = oVal + nVal;
         } catch (NumberFormatException e) {
-            throw new Exception("CLIENT_ERROR cannot increment or decrement non-numeric value");
+            throw new Exception("CLIENT_ERROR cannot increment or decrement non-numeric value\r\n");
         }
 
         String newVal = Integer.toString(tmpVal);
         int newSize = newVal.length();
+        newVal += "\r\n";
 
         doSet(key, newFlags, newTtl, newSize, newVal);
-
+        return true;
     }
 
-    private void doDecr(String key, String val) throws Exception {
+    private boolean doDecr(String key, String val) throws Exception {
         String oldVal = client.get(key);
-        if (oldVal == null) {
-            throw new Exception("NOT_STORED");
+        boolean isValid = isValid(oldVal);
+        if (!isValid) {
+            return false;
         }
         StoredVal storedVal = new StoredVal(oldVal);
         int newFlags = storedVal.getFlags();
@@ -201,10 +270,11 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         int tmpVal = 0;
         try {
             int nVal = Integer.parseInt(val);
-            int oVal = Integer.parseInt(storedVal.getVal());
+            String ooVal = storedVal.getVal();
+            int oVal = Integer.parseInt(ooVal.substring(0, ooVal.length() - 2));
             tmpVal = oVal - nVal;
         } catch (NumberFormatException e) {
-            throw new Exception("CLIENT_ERROR cannot increment or decrement non-numeric value");
+            throw new Exception("CLIENT_ERROR cannot increment or decrement non-numeric value\r\n");
         }
         String newVal = Integer.toString(tmpVal);
         int newSize = newVal.length();
@@ -212,8 +282,10 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
             newVal = "0";
             newSize = storedVal.getSize();
         }
+        newVal += "\r\n";
 
         doSet(key, newFlags, newTtl, newSize, newVal);
+        return true;
     }
 
     private void doSet(String key, int flags, int ttl, int size, String val) throws Exception {
@@ -237,14 +309,8 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         String oldVal = client.get(key);
         logger.info("command handler doDelete key=" + key);
 
-        if (oldVal == null || oldVal.length() == 0) {
-            return false;
-        }
-        StoredVal storedVal = new StoredVal(oldVal);
-        int ttl = storedVal.getTtl();
-
-        int currTime = (int) (System.currentTimeMillis() / 1000);
-        if (ttl < currTime && ttl > 0) {
+        boolean isValid = isValid(oldVal);
+        if (!isValid) {
             client.delete(key);
             return false;
         }
@@ -253,4 +319,17 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         return true;
     }
 
+    private boolean isValid(String val) {
+        if (val == null || val.length() == 0) {
+            return false;
+        }
+        StoredVal storedVal = new StoredVal(val);
+        int ttl = storedVal.getTtl();
+
+        int currTime = (int) (System.currentTimeMillis() / 1000);
+        if (ttl < currTime && ttl > 0) {
+            return false;
+        }
+        return true;
+    }
 }

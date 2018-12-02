@@ -99,14 +99,21 @@ public class CommandDecoder extends ReplayingDecoder<Void> {
                 Command command = new Command(cmd, key, flags, ttl, size, val);
                 clean();
                 out.add(command);
-            } else if (cmd.equals("set")) {
+            } else if (cmd.equals("set") || cmd.equals("add") || cmd.equals("replace")
+                            || cmd.equals("append") || cmd.equals("prepend")) {
                 decodeSet(in);
+            } else if (cmd.equals("incr") || cmd.equals("decr")) {
+                decodeIncrDecr(in);
+                Command command = new Command(cmd, key, flags, ttl, size, val);
+                clean();
+                out.add(command);
             } else if (cmd.equals("delete")) {
                 decodeDelete(in);
                 Command command = new Command(cmd, key, flags, ttl, size, val);
                 clean();
                 out.add(command);
             } else {
+                clean();
                 ByteBuf outBuf = Unpooled.copiedBuffer("ERROR\r\n".getBytes());
                 ctx.writeAndFlush(outBuf);
             }
@@ -174,6 +181,12 @@ public class CommandDecoder extends ReplayingDecoder<Void> {
         String key = readEndString(in);
         key = key.substring(0, key.length() - 2);
         this.key = key;
+    }
+
+    private void decodeIncrDecr(ByteBuf in) {
+        this.key = readString(in);
+
+        this.val = String.valueOf(readEndInt(in));
     }
 
     private String readString(ByteBuf in) {
