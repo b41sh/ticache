@@ -84,14 +84,13 @@ public class CommandDecoder extends ReplayingDecoder<Void> {
             String tmpCmd = sb.toString();
             logger.info("tmpCmd=" + tmpCmd);
             if (Arrays.stream(cmds).anyMatch(sb.toString()::equals)) {
-                System.out.println("found cmd");
                 cmd = tmpCmd;
+                logger.error("found cmd=" + cmd);
             } else {
                 logger.error("tmpCmd error " + tmpCmd);
                 ByteBuf outBuf = Unpooled.copiedBuffer("ERROR\r\n".getBytes());
                 ctx.writeAndFlush(outBuf);
             }
-
 
             if (cmd.equals("version\r\n")) {
                 showVersion(ctx);
@@ -217,13 +216,18 @@ public class CommandDecoder extends ReplayingDecoder<Void> {
 
     private int readEndInt(ByteBuf in) {
 
-
         char c;
         int integer = 0;
         while ((c = (char) in.readByte()) != '\r') {
+            if (c == ' ') {
+                while ((c = (char) in.readByte()) != '\r') {
+                    continue;
+                }
+                break;
+            }
             integer = (integer * 10) + (c - '0');
         }
-        c = (char) in.readByte();
+        in.skipBytes(1);
         return integer;
     }
 

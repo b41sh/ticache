@@ -93,7 +93,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         String val = storedVal.getVal();
 
         int currTime = (int) (System.currentTimeMillis() / 1000);
-        if (ttl < currTime) {
+        if (ttl < currTime && ttl > 0) {
             client.delete(key);
             return null;
         }
@@ -219,10 +219,9 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
     private void doSet(String key, int flags, int ttl, int size, String val) throws Exception {
         logger.info("command handler doSet key=" + key + " flags=" + flags + " ttl=" + ttl + " size=" + size + " val=" + val);
 
-        if (ttl <= 2592000) {
-            long time = System.currentTimeMillis();
-            int mtime = (int) (time / 1000);
-            ttl += mtime;
+        if (ttl <= 2592000 && ttl > 0) {
+            int currTime = (int) (System.currentTimeMillis() / 1000);
+            ttl += currTime;
         }
 
         StoredVal storedVal = new StoredVal(flags, ttl, size, val);
@@ -245,7 +244,7 @@ public class CommandHandler extends SimpleChannelInboundHandler<Command> {
         int ttl = storedVal.getTtl();
 
         int currTime = (int) (System.currentTimeMillis() / 1000);
-        if (ttl < currTime) {
+        if (ttl < currTime && ttl > 0) {
             client.delete(key);
             return false;
         }
